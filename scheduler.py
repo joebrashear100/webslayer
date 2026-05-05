@@ -25,6 +25,8 @@ from content_engine import generate_content
 from draft_queue import queue_draft
 from market_scanner import run_full_scan, ScanResult
 from decision_logger import log
+from security import startup_check
+from sms_notifier import send_alert, send_digest, send_rule_breach
 
 logger = logging.getLogger(__name__)
 
@@ -56,9 +58,26 @@ def monitor_and_queue(label: str = "scheduled"):
         for event in events:
             try:
                 content = generate_content(event)
+                from security import seal_draft
                 path = queue_draft(event, content)
-                logger.info("queued: %s", path.name)
+                seal_draft(path)
+                logger.info("queued + sealed: %s", path.name)
                 queued += 1
+
+                # SMS alert for action_required events
+                if event.severity == "action_required":
+                    if event.event_type == "rule_alert":
+                        send_rule_breach(
+                            ticker=event.ticker,
+                            rule=event.data.get("rule", "rule violation"),
+                            detail=f"{event.data.get('pct_of_book', '?')}% of spec book",
+                        )
+                    else:
+                        send_alert(
+                            message=f"{event.event_type}: {event.data}",
+                            priority="high",
+                            ticker=event.ticker,
+                        )
             except Exception as e:
                 logger.error("failed to process event %s/%s: %s", event.ticker, event.event_type, e)
                 log.decision(
@@ -111,6 +130,13 @@ def scanner_job(label: str = "scheduled"):
         for result in results:
             if result.priority in ("critical", "high"):
                 _queue_scan_result(result)
+                # SMS alert for critical scanner findings
+                if result.priority == "critical":
+                    send_alert(
+                        message=f"{result.scan_type}: {result.finding}\n{result.reasoning[:200]}",
+                        priority="critical",
+                        ticker=result.ticker,
+                    )
 
         log.decision(
             component="scheduler",
@@ -191,10 +217,29 @@ def intraday_scan_job():
 
 
 def eod_job():
-    """4:30pm ET — end-of-day monitor + full scan."""
+    """4:30pm ET — end-of-day monitor + full scan + SMS digest."""
     logger.info("running EOD summary")
     monitor_and_queue("eod")
-    scanner_job("eod")
+
+    scan_results = []
+    try:
+        scan_results = run_full_scan()
+        for result in scan_results:
+            if result.priority in ("critical", "high"):
+                _queue_scan_result(result)
+    except Exception as e:
+        logger.error("EOD scanner failed: %s", e)
+
+    # Count queued drafts for digest
+    from draft_queue import list_pending_drafts
+    pending_count = len(list_pending_drafts())
+
+    # Load today's events count from decision log
+    from status import _load_recent_decisions
+    records = _load_recent_decisions(hours=8)
+    event_count = sum(1 for r in records if r.get("action") == "event_created")
+
+    send_digest(scan_results=scan_results, events=list(range(event_count)), queued_drafts=pending_count)
 
 
 def premarket_job():
@@ -258,10 +303,14 @@ def main():
 
     logger.info("Portfolio Intelligence Agent starting")
     logger.info("Approval mode: %s", os.getenv("APPROVAL_MODE", "file"))
+
+    # Security gate — halts on missing critical credentials
+    startup_check(halt_on_critical=True)
+
     log.decision(
         component="scheduler",
         action="startup",
-        reasoning="Agent starting — running immediate monitor + scanner cycle before entering scheduled loop",
+        reasoning="Agent starting — security check passed, running immediate monitor + scanner cycle",
         outcome="initializing",
         data={"approval_mode": os.getenv("APPROVAL_MODE", "file")},
     )
