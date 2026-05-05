@@ -1,6 +1,32 @@
+# Credentials — never commit
 .env
+*.env
+.env.*
+!.env.example
+
+# Agent state files
+.sms_rate_state.json
+.draft_integrity.json
+
+# Runtime logs (contain portfolio data)
+logs/
+scheduler.log
+
+# Drafted content (pending human review — not for version control)
+drafts/*.json
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
-scheduler.log
-drafts/*.json
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

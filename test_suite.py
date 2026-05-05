@@ -559,6 +559,198 @@ def test_scheduler_has_four_jobs():
         record("scheduler has 4 jobs including scanner", False, str(e))
 
 
+# ── Test 18: SMS kill switch suppresses sends ─────────────────────────────────
+
+def test_sms_kill_switch():
+    print("\n[18] SMS — kill switch suppresses sends")
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state_path = Path(tmpdir) / ".sms_rate_state.json"
+        with patch.dict("os.environ", {"SMS_KILL_SWITCH": "true"}):
+            with patch("sms_notifier._RATE_STATE_PATH", state_path):
+                with patch("sms_notifier._send_raw") as mock_send:
+                    from sms_notifier import send_alert
+                    result = send_alert("test message", priority="critical", ticker="SNDK")
+    try:
+        assert result is False, "expected False when kill switch active"
+        mock_send.assert_not_called()
+        record("SMS kill switch suppresses all sends", True)
+    except AssertionError as e:
+        record("SMS kill switch suppresses all sends", False, str(e))
+
+
+# ── Test 19: SMS rate limiter blocks after limit ───────────────────────────────
+
+def test_sms_rate_limit():
+    print("\n[19] SMS — rate limiter blocks excess sends")
+    import tempfile
+    from pathlib import Path
+
+    now = datetime.now(timezone.utc)
+    # Pre-fill state with 10 sends in last hour (at the limit)
+    state = {
+        "sent_timestamps": [(now - timedelta(minutes=i)).isoformat() for i in range(10)],
+        "consecutive_failures": 0,
+        "circuit_open_until": None,
+    }
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state_path = Path(tmpdir) / ".sms_rate_state.json"
+        with open(state_path, "w") as f:
+            json.dump(state, f)
+
+        with patch.dict("os.environ", {"SMS_KILL_SWITCH": "false", "SMS_RATE_LIMIT_PER_HOUR": "10"}):
+            with patch("sms_notifier._RATE_STATE_PATH", state_path):
+                with patch("sms_notifier._send_raw") as mock_send:
+                    from sms_notifier import send_alert
+                    result = send_alert("over limit", priority="critical", ticker="TTD")
+
+    try:
+        assert result is False, "expected False when rate limited"
+        mock_send.assert_not_called()
+        record("SMS rate limiter blocks when at limit", True)
+    except AssertionError as e:
+        record("SMS rate limiter blocks when at limit", False, str(e))
+
+
+# ── Test 20: SMS circuit breaker opens after failures ────────────────────────
+
+def test_sms_circuit_breaker():
+    print("\n[20] SMS — circuit breaker opens after 3 failures")
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        state_path = Path(tmpdir) / ".sms_rate_state.json"
+
+        with patch.dict("os.environ", {"SMS_KILL_SWITCH": "false"}):
+            with patch("sms_notifier._RATE_STATE_PATH", state_path):
+                with patch("sms_notifier._send_raw", side_effect=Exception("Twilio down")):
+                    from sms_notifier import send_alert
+                    for _ in range(3):
+                        send_alert("fail", priority="critical", ticker="GEV")
+
+                # Check circuit is now open
+                with open(state_path) as f:
+                    final_state = json.load(f)
+
+    try:
+        assert final_state["consecutive_failures"] >= 3
+        assert final_state["circuit_open_until"] is not None, "circuit should be open"
+        record("SMS circuit breaker opens after 3 consecutive failures", True)
+    except AssertionError as e:
+        record("SMS circuit breaker opens after 3 consecutive failures", False, str(e))
+
+
+# ── Test 21: Security — env var validation ────────────────────────────────────
+
+def test_security_env_validation():
+    print("\n[21] Security — env var validation")
+    with patch.dict("os.environ", {
+        "AWS_ACCESS_KEY_ID": "test_key",
+        "AWS_SECRET_ACCESS_KEY": "test_secret",
+        "AWS_DEFAULT_REGION": "us-east-1",
+        "BEDROCK_MODEL_ID": "anthropic.claude-sonnet-4-6",
+        "ALPACA_API_KEY": "test_alpaca",
+        "ALPACA_SECRET_KEY": "test_alpaca_secret",
+        "ALPACA_BASE_URL": "https://paper-api.alpaca.markets",
+    }, clear=False):
+        from security import validate_environment
+        ok, issues = validate_environment()
+    try:
+        assert ok is True, f"expected all critical vars present, issues: {issues}"
+        record("security validates environment with all critical vars set", True)
+    except AssertionError as e:
+        record("security validates environment with all critical vars set", False, str(e))
+
+
+# ── Test 22: Security — missing critical var detected ─────────────────────────
+
+def test_security_missing_critical():
+    print("\n[22] Security — missing critical var detected")
+    env = {k: v for k, v in __import__("os").environ.items()}
+    env.pop("AWS_ACCESS_KEY_ID", None)
+    env.pop("AWS_SECRET_ACCESS_KEY", None)
+
+    with patch.dict("os.environ", {"AWS_ACCESS_KEY_ID": "", "AWS_SECRET_ACCESS_KEY": ""}, clear=False):
+        from security import validate_environment
+        ok, issues = validate_environment()
+    try:
+        assert ok is False, "expected failure with missing critical vars"
+        record("security detects missing critical credentials", True)
+    except AssertionError as e:
+        record("security detects missing critical credentials", False, str(e))
+
+
+# ── Test 23: Security — draft integrity seal and verify ───────────────────────
+
+def test_draft_integrity():
+    print("\n[23] Security — draft integrity seal + verify")
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        draft_path = Path(tmpdir) / "test_draft.json"
+        store_path = Path(tmpdir) / ".draft_integrity.json"
+        draft_path.write_text(json.dumps({"status": "approved", "content": "test"}))
+
+        with patch("security._INTEGRITY_STORE", store_path):
+            from security import seal_draft, verify_draft
+
+            digest = seal_draft(draft_path)
+            valid, reason = verify_draft(draft_path)
+            assert valid, f"fresh draft should verify: {reason}"
+
+            # Tamper with the file
+            draft_path.write_text(json.dumps({"status": "approved", "content": "TAMPERED"}))
+            valid2, reason2 = verify_draft(draft_path)
+
+    try:
+        assert not valid2, "tampered draft should fail verification"
+        assert "INTEGRITY FAILURE" in reason2, f"expected integrity failure message, got: {reason2}"
+        record("draft integrity seal detects tampering", True)
+    except AssertionError as e:
+        record("draft integrity seal detects tampering", False, str(e))
+
+
+# ── Test 24: Security — secrets scrubber ─────────────────────────────────────
+
+def test_secrets_scrubber():
+    print("\n[24] Security — secrets scrubber")
+    from security import scrub
+
+    test_cases = [
+        ("My key is AKIAIOSFODNN7EXAMPLE", "[AWS_KEY_REDACTED]"),
+        ("Bearer eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiIxIn0.sig", "[TOKEN_REDACTED]"),
+    ]
+    try:
+        for input_text, expected_pattern in test_cases:
+            result = scrub(input_text)
+            assert expected_pattern in result or input_text != result, \
+                f"scrubber should have modified: {input_text!r} → {result!r}"
+        record("secrets scrubber redacts known patterns", True)
+    except AssertionError as e:
+        record("secrets scrubber redacts known patterns", False, str(e))
+
+
+# ── Test 25: Status report generates without error ───────────────────────────
+
+def test_status_report():
+    print("\n[25] Status — report generates without error")
+    try:
+        from status import build_report
+        report = build_report()
+        assert "drafts" in report
+        assert "last_monitor_cycle" in report
+        assert "last_scanner_cycle" in report
+        assert "sms" in report
+        record("status report builds without error", True)
+    except Exception as e:
+        record("status report builds without error", False, str(e))
+
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 def print_summary():
@@ -594,6 +786,14 @@ def main():
     test_scanner_opportunity_scan()
     test_monitor_logs_decisions()
     test_scheduler_has_four_jobs()
+    test_sms_kill_switch()
+    test_sms_rate_limit()
+    test_sms_circuit_breaker()
+    test_security_env_validation()
+    test_security_missing_critical()
+    test_draft_integrity()
+    test_secrets_scrubber()
+    test_status_report()
 
     ok = print_summary()
     sys.exit(0 if ok else 1)

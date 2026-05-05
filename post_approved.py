@@ -81,6 +81,8 @@ def _parse_thread(content: str) -> list[str]:
 
 
 def post_draft(path: Path, dry_run: bool = False) -> bool:
+    from security import verify_draft, validate_draft_content
+
     with open(path) as f:
         draft = json.load(f)
 
@@ -88,9 +90,25 @@ def post_draft(path: Path, dry_run: bool = False) -> bool:
         logger.warning("skipping %s — status is '%s', not approved", path.name, draft["status"])
         return False
 
+    # Integrity check — reject if file was modified after sealing
+    if not dry_run:
+        valid, reason = verify_draft(path)
+        if not valid:
+            print(f"  [SECURITY] {reason}")
+            logger.error("integrity check failed for %s: %s", path.name, reason)
+            return False
+        print(f"  [OK] {reason}")
+
+    # Content validation
+    content_valid, content_issues = validate_draft_content(draft)
+    if not content_valid:
+        print(f"  [INVALID] Draft failed validation: {content_issues}")
+        logger.error("draft validation failed for %s: %s", path.name, content_issues)
+        return False
+
     content = draft["content"].get("content", "")
     content_type = draft["content"].get("content_type", "tweet")
-    ticker = draft["event"]["ticker"]
+    ticker = draft.get("event", {}).get("ticker", draft.get("scan_result", {}).get("ticker", "?"))
 
     print(f"\nPosting: {path.name}")
     print(f"  Ticker: {ticker} | Type: {content_type}")

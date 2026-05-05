@@ -38,3 +38,33 @@
   Reasoning: Bedrock call failed (Bedrock unavailable) — using stub for SNDK/price_move
 [2026-05-05T03:07:02.952581+00:00] [CONTENT_ENGINE] draft_created → draft_ready
   Reasoning: Generated tweet for SNDK/price_move (bedrock=False)
+[2026-05-05T03:37:12.602064+00:00] [MONITOR] price_move_check → event_created
+  Reasoning: SNDK moved 6.20% up (threshold: 5.0%) — creating event
+[2026-05-05T03:37:12.604016+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: MNKD moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:37:12.604174+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: TTD moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:37:12.604235+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: GEV moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:37:12.604313+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: SNDK moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:37:12.604409+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: VIST moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:37:12.756539+00:00] [CONTENT_ENGINE] bedrock_generation → 
+  Reasoning: 
+[2026-05-05T03:37:12.756710+00:00] [CONTENT_ENGINE] draft_created → draft_ready
+  Reasoning: Generated tweet for SNDK/price_move (bedrock=True)
+[2026-05-05T03:37:12.757466+00:00] [CONTENT_ENGINE] bedrock_fallback → stub_used
+  Reasoning: Bedrock call failed (Bedrock unavailable) — using stub for SNDK/price_move
+[2026-05-05T03:37:12.757664+00:00] [CONTENT_ENGINE] draft_created → draft_ready
+  Reasoning: Generated tweet for SNDK/price_move (bedrock=False)
+[2026-05-05T03:37:12.881989+00:00] [SMS] send_alert → suppressed
+  Reasoning: Kill switch active — alert suppressed: test message
+[2026-05-05T03:37:12.883148+00:00] [SMS] send_alert → rate_limited
+  Reasoning: Rate limited (rate limit reached (10/10 per hour)) — alert dropped
+[2026-05-05T03:37:12.884492+00:00] [SMS] send_alert → failed
+  Reasoning: Twilio send failed: Twilio down
+[2026-05-05T03:37:12.885087+00:00] [SMS] send_alert → failed
+  Reasoning: Twilio send failed: Twilio down
+[2026-05-05T03:37:12.885543+00:00] [SMS] send_alert → failed
+  Reasoning: Twilio send failed: Twilio down
