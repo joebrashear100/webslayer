@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from portfolio_config import PORTFOLIO, POSITION_TICKERS, ALL_TICKERS
+from decision_logger import log
 
 logger = logging.getLogger(__name__)
 
@@ -66,18 +67,41 @@ def detect_price_moves() -> list[Event]:
         bars_map = client.get_stock_bars(req)
     except Exception as e:
         logger.error("price move fetch failed: %s", e)
+        log.decision(
+            component="monitor",
+            action="price_move_fetch",
+            reasoning=f"Alpaca bar fetch failed: {e}",
+            outcome="aborted",
+            severity="flag",
+        )
         return events
 
     for ticker in POSITION_TICKERS:
         try:
             bars = bars_map[ticker]
             if len(bars) < 2:
+                log.decision(
+                    component="monitor",
+                    action="price_move_check",
+                    reasoning=f"{ticker}: insufficient bar data (need ≥2 bars)",
+                    outcome="skipped",
+                    data={"ticker": ticker},
+                )
                 continue
             prev_close = bars[-2].close
             curr_close = bars[-1].close
             pct = (curr_close - prev_close) / prev_close
             if abs(pct) >= PRICE_MOVE_THRESHOLD:
                 severity = "action_required" if abs(pct) >= 0.10 else "flag"
+                direction = "up" if pct > 0 else "down"
+                log.decision(
+                    component="monitor",
+                    action="price_move_check",
+                    reasoning=f"{ticker} moved {pct*100:.2f}% {direction} (threshold: {PRICE_MOVE_THRESHOLD*100}%) — creating event",
+                    outcome="event_created",
+                    data={"ticker": ticker, "pct": round(pct * 100, 2), "prev": prev_close, "curr": curr_close},
+                    severity=severity,
+                )
                 events.append(Event(
                     ticker=ticker,
                     event_type="price_move",
@@ -86,10 +110,18 @@ def detect_price_moves() -> list[Event]:
                         "prev_close": prev_close,
                         "curr_close": curr_close,
                         "pct_change": round(pct * 100, 2),
-                        "direction": "up" if pct > 0 else "down",
+                        "direction": direction,
                         "thesis": PORTFOLIO["positions"][ticker].get("thesis", ""),
                     },
                 ))
+            else:
+                log.decision(
+                    component="monitor",
+                    action="price_move_check",
+                    reasoning=f"{ticker} moved {pct*100:.2f}% — below {PRICE_MOVE_THRESHOLD*100}% threshold, no action",
+                    outcome="no_event",
+                    data={"ticker": ticker, "pct": round(pct * 100, 2)},
+                )
         except (KeyError, IndexError) as e:
             logger.warning("price move for %s: %s", ticker, e)
 
@@ -109,14 +141,37 @@ def detect_news_events() -> list[Event]:
             req = NewsRequest(symbols=[ticker], limit=10)
             articles = client.get_news(req)
             if not articles:
+                log.decision(
+                    component="monitor",
+                    action="news_check",
+                    reasoning=f"{ticker}: no articles returned",
+                    outcome="no_event",
+                    data={"ticker": ticker},
+                )
                 continue
             recent = [a for a in articles if a.created_at.replace(tzinfo=timezone.utc) >= cutoff]
             if not recent:
+                log.decision(
+                    component="monitor",
+                    action="news_check",
+                    reasoning=f"{ticker}: {len(articles)} articles found but none within {NEWS_LOOKBACK_HOURS}h lookback window",
+                    outcome="no_event",
+                    data={"ticker": ticker, "total_articles": len(articles)},
+                )
                 continue
             config = (
                 PORTFOLIO["positions"].get(ticker)
                 or PORTFOLIO["pending_entry"].get(ticker)
                 or {}
+            )
+            headlines = [a.headline for a in recent[:3]]
+            log.decision(
+                component="monitor",
+                action="news_check",
+                reasoning=f"{ticker}: {len(recent)} recent article(s) within {NEWS_LOOKBACK_HOURS}h — creating event. Headlines: {headlines}",
+                outcome="event_created",
+                data={"ticker": ticker, "article_count": len(recent), "headlines": headlines},
+                severity="flag",
             )
             events.append(Event(
                 ticker=ticker,
@@ -124,7 +179,7 @@ def detect_news_events() -> list[Event]:
                 severity="flag",
                 data={
                     "article_count": len(recent),
-                    "headlines": [a.headline for a in recent[:3]],
+                    "headlines": headlines,
                     "thesis": config.get("thesis", ""),
                 },
             ))
@@ -253,6 +308,13 @@ def detect_entry_windows() -> list[Event]:
 def run_all_checks() -> list[Event]:
     all_events: list[Event] = []
 
+    log.decision(
+        component="monitor",
+        action="cycle_start",
+        reasoning="Scheduled monitor cycle beginning — checking price moves, news, catalysts, rules, entry windows",
+        outcome="running",
+    )
+
     logger.info("running price move detection")
     all_events.extend(detect_price_moves())
 
@@ -267,6 +329,19 @@ def run_all_checks() -> list[Event]:
 
     logger.info("running entry window detection")
     all_events.extend(detect_entry_windows())
+
+    by_type = {}
+    for e in all_events:
+        by_type.setdefault(e.event_type, 0)
+        by_type[e.event_type] += 1
+
+    log.decision(
+        component="monitor",
+        action="cycle_complete",
+        reasoning=f"Monitor cycle finished. Events by type: {by_type}",
+        outcome=f"{len(all_events)}_events",
+        data={"event_breakdown": by_type, "total": len(all_events)},
+    )
 
     logger.info("monitor complete: %d events detected", len(all_events))
     return all_events

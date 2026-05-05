@@ -1,0 +1,40 @@
+[2026-05-05T03:06:48.492786+00:00] [MONITOR] price_move_check → event_created
+  Reasoning: SNDK moved 6.20% up (threshold: 5.0%) — creating event
+[2026-05-05T03:06:48.495559+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: MNKD moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:06:48.495775+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: TTD moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:06:48.495848+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: GEV moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:06:48.495922+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: SNDK moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:06:48.496039+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: VIST moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:06:48.724924+00:00] [CONTENT_ENGINE] bedrock_generation → 
+  Reasoning: 
+[2026-05-05T03:06:48.725093+00:00] [CONTENT_ENGINE] draft_created → draft_ready
+  Reasoning: Generated tweet for SNDK/price_move (bedrock=True)
+[2026-05-05T03:06:48.726030+00:00] [CONTENT_ENGINE] bedrock_fallback → stub_used
+  Reasoning: Bedrock call failed (Bedrock unavailable) — using stub for SNDK/price_move
+[2026-05-05T03:06:48.726193+00:00] [CONTENT_ENGINE] draft_created → draft_ready
+  Reasoning: Generated tweet for SNDK/price_move (bedrock=False)
+[2026-05-05T03:07:02.877740+00:00] [MONITOR] price_move_check → event_created
+  Reasoning: SNDK moved 6.20% up (threshold: 5.0%) — creating event
+[2026-05-05T03:07:02.879453+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: MNKD moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:07:02.879590+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: TTD moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:07:02.879715+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: GEV moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:07:02.879785+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: SNDK moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:07:02.879842+00:00] [MONITOR] price_move_check → no_event
+  Reasoning: VIST moved 2.00% — below 5.0% threshold, no action
+[2026-05-05T03:07:02.951618+00:00] [CONTENT_ENGINE] bedrock_generation → 
+  Reasoning: 
+[2026-05-05T03:07:02.951761+00:00] [CONTENT_ENGINE] draft_created → draft_ready
+  Reasoning: Generated tweet for SNDK/price_move (bedrock=True)
+[2026-05-05T03:07:02.952396+00:00] [CONTENT_ENGINE] bedrock_fallback → stub_used
+  Reasoning: Bedrock call failed (Bedrock unavailable) — using stub for SNDK/price_move
+[2026-05-05T03:07:02.952581+00:00] [CONTENT_ENGINE] draft_created → draft_ready
+  Reasoning: Generated tweet for SNDK/price_move (bedrock=False)
