@@ -1,0 +1,88 @@
+BUILD LOG — Portfolio Intelligence Agent
+========================================
+Started: 2026-05-05
+
+PHASE 0 — FEASIBILITY
+----------------------
+Pre-build analysis: Credentials are placeholder values ({{...}} templates).
+Running feasibility_check.py against live services is not possible in this
+build environment without real credentials. The check script is written to
+fail fast and surface clear remediation steps when credentials are invalid.
+
+Decision: All application code uses real SDK calls with graceful fallbacks.
+Content engine falls back to stub output if Bedrock is unavailable. Monitor
+continues with partial results if individual Alpaca endpoints fail. This
+means a system with stubbed Bedrock still produces draft files — the output
+just lacks LLM-polished voice until real credentials are wired in.
+
+PHASE 1 — ARCHITECTURE DECISION
+---------------------------------
+EVALUATED: Bedrock Agent with Lambda-backed Action Groups + EventBridge schedule.
+REJECTED: Requires IAM role trust setup for Lambda execution role, S3 bucket for
+agent knowledge base, and separate Lambda deployment for each action group. For a
+single-user monitoring system, this is significant infrastructure overhead with no
+behavioral advantage over direct InvokeModel calls.
+
+PIVOT: Direct Bedrock InvokeModel (bedrock-runtime) + APScheduler in-process.
+- Same content quality: structured system prompt + portfolio context in messages[]
+- Same schedule behavior: APScheduler CronTrigger matches EventBridge cron syntax
+- Zero Lambda/S3 infrastructure needed
+- Single process, single deployment target
+- Easier to debug: full Python stack traces instead of CloudWatch log hunting
+
+If scale requires it (multiple portfolios, high-frequency updates), the Lambda
+path is documented and the action group interface matches the monitor.py function
+signatures exactly — migration would be additive, not a rewrite.
+
+PHASE 2 — BUILD NOTES
+----------------------
+alpaca-py NewsRequest: The news endpoint exists on StockHistoricalDataClient
+but the exact parameter name varies by alpaca-py version. Used `symbols` (list)
+and `limit` as documented in alpaca-py 0.26.x. If an older version is installed,
+the param may be `symbol_or_symbols`. requirements.txt pins to 0.26.1.
+
+Twitter write scope verification: Tweepy's verify_credentials() confirms OAuth1
+token validity without posting. This is the safest way to check write scope
+without side effects.
+
+Content generation prompts: System prompt (VOICE_PROFILE) is embedded verbatim
+as specified. Per-event-type prompt extensions provide the event-specific
+generation instructions. The model receives the portfolio thesis for each event
+so content always references the actual investment thesis, not generic market
+commentary.
+
+PHASE 3 — ORCHESTRATION
+------------------------
+APScheduler BlockingScheduler used (not BackgroundScheduler) so the process
+stays alive and its log output goes directly to stdout/scheduler.log. This is
+intentional for a single-process deployment.
+
+Market hours guard is inside intraday_job() rather than at the scheduler level
+so the job always logs its decision — useful for debugging timezone issues.
+
+PHASE 4 — TEST SUITE
+---------------------
+All tests pass with mocked dependencies. Tests cover:
+- Portfolio config integrity
+- Event dataclass
+- Price move detection (true positive + true negative)
+- Content generation via Bedrock mock
+- Content generation stub fallback
+- Rule violation detection
+- Rule alert internal-only routing
+- Draft queue write structure
+- Scheduler initialization (3 jobs)
+- Catalyst proximity detection
+
+No live API calls in test suite — unittest.mock patches all SDK clients.
+
+KNOWN ISSUES / FUTURE WORK
+---------------------------
+1. No retry logic on Alpaca API calls (transient failures surface as warnings,
+   not retries). Production version should add tenacity or similar.
+2. Slack Block Kit buttons (approve/reject) require a backend endpoint to handle
+   the interaction callback — current Slack integration is notification-only.
+   Full interactive approval would need a Flask/FastAPI webhook handler.
+3. Thread tweet parsing assumes "1/" marker format. If Bedrock generates threads
+   differently, _parse_thread() may not split correctly. Post-generation
+   validation of thread format is a good future addition.
