@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from monitor import Event
+from decision_logger import log
 
 logger = logging.getLogger(__name__)
 
@@ -169,19 +170,43 @@ def generate_content(event: Event) -> dict:
 
     prompt = _build_prompt(event)
     bedrock_used = False
+    prompt_summary = f"{event.event_type} event for {event.ticker} / severity={event.severity}"
 
     try:
         content = _invoke_bedrock(prompt)
         bedrock_used = True
+        log.bedrock_reasoning(
+            ticker=event.ticker,
+            event_type=event.event_type,
+            prompt_summary=prompt_summary,
+            full_reasoning=f"Prompt sent:\n{prompt[:500]}...\n\nResponse:\n{content}",
+            content_generated=content,
+        )
         logger.info("bedrock generated content for %s/%s", event.ticker, event.event_type)
     except Exception as e:
         logger.warning("bedrock unavailable (%s) — using stub for %s/%s", e, event.ticker, event.event_type)
+        log.decision(
+            component="content_engine",
+            action="bedrock_fallback",
+            reasoning=f"Bedrock call failed ({e}) — using stub for {event.ticker}/{event.event_type}",
+            outcome="stub_used",
+            data={"ticker": event.ticker, "event_type": event.event_type, "error": str(e)},
+            severity="flag",
+        )
         content = _stub_content(event)
 
     is_thread = "\n1/" in content or content.startswith("1/")
     content_type = "thread" if is_thread else "tweet"
     if event.event_type == "news" and event.data.get("article_count", 0) >= 3:
         content_type = "thread"
+
+    log.decision(
+        component="content_engine",
+        action="draft_created",
+        reasoning=f"Generated {content_type} for {event.ticker}/{event.event_type} (bedrock={bedrock_used})",
+        outcome="draft_ready",
+        data={"ticker": event.ticker, "content_type": content_type, "char_count": len(content)},
+    )
 
     return {
         "event_type": event.event_type,
